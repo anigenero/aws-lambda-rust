@@ -11,12 +11,12 @@ use std::error::Error;
 
 #[derive(Deserialize, Clone)]
 struct CustomEvent {
-    foo: String,
+    pub input: String,
 }
 
 #[derive(Serialize, Clone)]
 struct CustomOutput {
-    message: String,
+    result: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -30,6 +30,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn my_handler(e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
     Ok(CustomOutput {
-        message: format!("All good")
+        result: format!("Message was: {}", e.input)
     })
 }
