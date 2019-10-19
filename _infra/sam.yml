@@ -1,0 +1,57 @@
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+
+  StackSuffix:
+    Type: String
+
+Resources:
+
+  RustHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-rust
+      Runtime: provided
+      Handler: doesnt.matter
+      CodeUri: ../
+      MemorySize: 1024
+      Timeout: 300
+      Role: !GetAtt [LambdaRole,Arn]
+
+  ######################################################################
+  ## IAM Roles                                                        ##
+  ## ---------------------------------------------------------------- ##
+  ## Overrides CloudWatch log groups for the Lambda functions         ##
+  ######################################################################
+
+  # default Lambda execution role
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-lambda-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - logs:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DetachNetworkInterface
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"

@@ -1,0 +1,353 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Rust Lambda Pipeline
+
+Parameters:
+
+  GitBranch:
+    Type: String
+    Default: develop
+
+  GitAuthToken:
+    Type: String
+    NoEcho: true
+
+  GitOwner:
+    Type: String
+
+  BuildBucketName:
+    Type: String
+
+  StackSuffix:
+    Type: String
+
+Resources:
+
+  ##########################################################################
+  ## S3 Bucket                                                            ##
+  ## -------------------------------------------------------------------- ##
+  ## Contains the build bucket where the build artifacts will be          ##
+  ## published                                                            ##
+  ##########################################################################
+
+  BuildS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      BucketName: !Ref BuildBucketName
+
+  PipelineCloudformationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-cfn-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service:
+              - cloudformation.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-cfn-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                Resource:
+                  Fn::Join:
+                    - ''
+                    - - !GetAtt [BuildS3Bucket,Arn]
+                      - '/*'
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreateRole
+                  - iam:DeleteRolePolicy
+                  - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:GetRole*
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - kms:CreateKey
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                  - kms:ListKeys
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:GetEventSourceMapping
+                  - lambda:GetFunction*
+                  - lambda:ListTags
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - Fn::ImportValue: !Sub sfsync-${SfSyncStackSuffix}-db-postgresCredentialsSecret
+                  - Fn::ImportValue: !Sub kazzcade-auth-${KazzcadeStackSuffix}-root-salesforceAppCredentials
+                  - Fn::ImportValue: !Sub kazzcade-auth-${KazzcadeStackSuffix}-root-salesforceCredentials
+                  - !ImportValue lod-credentials-SalesforceAccessTokenSecret
+                  - !ImportValue lod-credentials-SalesforceCredentialsSecret
+              - Effect: Allow
+                Action:
+                  - ec2:AssociateAddress
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:Describe*
+                  - ec2:DisassociateAddress
+                  - ec2:RevokeSecurityGroupIngress
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - apigateway:*
+                Resource: '*'
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-pipeline-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service:
+              - codepipeline.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-codepipeline-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectVersioning
+                  - s3:PutObject
+                Resource: !Join
+                  - ''
+                  - - !GetAtt BuildS3Bucket.Arn
+                    - '/*'
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource:
+                  - !GetAtt [CodeBuildProject, Arn]
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service:
+              - codebuild.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-codebuild-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:*
+                  - cloudformation:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - events:ListRules
+                  - events:DescribeRule
+                  - events:DeleteRule
+                  - events:DisableRule
+                  - events:DescribeRule
+                  - events:EnableRule
+                  - events:PutEvents
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:RemovePermission
+                  - events:RemoveTargets
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:*
+                  - lambda:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  Fn::Join:
+                    - ''
+                    - - !GetAtt [BuildS3Bucket,Arn]
+                      - '/*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: '*'
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-web
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:2.0
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Type: PLAINTEXT
+            Value: !Ref BuildS3Bucket
+      Source:
+        Type: CODEPIPELINE
+      ServiceRole: !GetAtt [BuildRole, Arn]
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${VpcStackName}-privateSecurityGroup
+        Subnets:
+          - Fn::ImportValue: !Sub ${VpcStackName}-privateSubnet0
+        VpcId:
+          Fn::ImportValue: !Sub ${VpcStackName}-vpc
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      RoleArn: !GetAtt [CodePipelineRole, Arn]
+      ArtifactStore:
+        Type: S3
+        Location: !Ref BuildS3Bucket
+      RestartExecutionOnUpdate: false
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: fetch-source
+              RunOrder: 1
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              Configuration:
+                Owner: !Ref GitOwner
+                Repo: aws-lambda-rust-boilerplate
+                Branch: !Ref GitBranch
+                OAuthToken: !Ref GitAuthToken
+                PollForSourceChanges: false # don't need with webhook
+              OutputArtifacts:
+                - Name: source
+        - Name: Build
+          Actions:
+            - Name: build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              RunOrder: 1
+              InputArtifacts:
+                - Name: source
+              OutputArtifacts:
+                - Name: build
+        - Name: Deploy
+          Actions:
+            - Name: deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: !GetAtt [PipelineCloudformationRole,Arn]
+                StackName: !Sub aws-lambda-rust-${StackSuffix}
+                TemplatePath: 'build::package.yml'
+                ParameterOverrides: !Sub |
+                  {
+                    "StackSuffix": "${StackSuffix}"
+                  }
+              InputArtifacts:
+                - Name: build
+
+  PipelineWebHook:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      Name: !Sub ${AWS::StackName}-webhook
+      Authentication: GITHUB_HMAC
+      AuthenticationConfiguration:
+        SecretToken: !Join
+          - ''
+          - - '{{resolve:secretsmanager:'
+            - !ImportValue lod-credentials-GitHubTokenSecret
+            - ':SecretString}}'
+      RegisterWithThirdParty: true
+      Filters:
+        - JsonPath: $.ref
+          MatchEquals: refs/heads/{Branch}
+      TargetAction: fetch-source
+      TargetPipeline: !Ref CodePipeline
+      TargetPipelineVersion: 1
