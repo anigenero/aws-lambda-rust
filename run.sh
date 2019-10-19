@@ -11,7 +11,8 @@ echo "{
 
 # put your event variables here
 echo "{
-  \"input\": \"Hello, World!\"
+  \"event_type\": \"hello\",
+  \"name\": \"John Doe\"
 }" > ./event.json
 
 cargo build --release --target x86_64-unknown-linux-musl

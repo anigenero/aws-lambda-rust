@@ -9,14 +9,11 @@ extern crate simple_logger;
 use lambda::error::HandlerError;
 use std::error::Error;
 
-#[derive(Deserialize, Clone)]
-struct CustomEvent {
-    pub input: String,
-}
+mod event;
 
 #[derive(Serialize, Clone)]
 struct CustomOutput {
-    result: String,
+    message: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -28,8 +25,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 }
 
-fn my_handler(e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
-    Ok(CustomOutput {
-        result: format!("Message was: {}", e.input)
-    })
+fn my_handler(e: event::CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
+    if let event::EventType::Hello = e.event_type {
+        Ok(CustomOutput {
+            message: format!("Hello, {}!", e.name)
+        })
+    } else {
+        Ok(CustomOutput {
+            message: format!("Goodbye, {}!", e.name)
+        })
+    }
 }
